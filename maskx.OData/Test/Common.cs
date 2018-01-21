@@ -10,7 +10,7 @@ namespace Test
     class Common
     {
         public static string _RouterPrefix = "ss";
-        public static int _Port = 5000;
+        public static int _Port = 5008;
         static Common()
         {
             Tpl = string.Format("http://{0}:{1}/{2}/{{0}}", IPAddress.Loopback, _Port, _RouterPrefix);
@@ -62,7 +62,7 @@ namespace Test
             var str = response.Content.ReadAsStringAsync().Result;
             return new ValueTuple<HttpStatusCode, string>(response.StatusCode, str);
         }
-        public static ValueTuple<HttpStatusCode, JObject> Patch(string query, object content)
+        public static ValueTuple<HttpStatusCode, string> Patch(string query, object content)
         {
             HttpClient client = new HttpClient();
             HttpRequestMessage request = new HttpRequestMessage(new HttpMethod("PATCH"), string.Format(Tpl, query))
@@ -71,7 +71,7 @@ namespace Test
             };
             HttpResponseMessage response = client.SendAsync(request).Result;
             var str = response.Content.ReadAsStringAsync().Result;
-            return new ValueTuple<HttpStatusCode, JObject>(response.StatusCode, JObject.Parse(str));
+            return new ValueTuple<HttpStatusCode, string>(response.StatusCode, str);
         }
     }
 }
