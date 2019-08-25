@@ -4,6 +4,7 @@ using System.Data.Common;
 using System.Linq;
 using System.Text;
 using maskx.Database;
+using maskx.OData.Metadata;
 using maskx.OData.MySQL;
 using Microsoft.AspNet.OData;
 using Microsoft.AspNet.OData.Query;
@@ -198,6 +199,7 @@ from information_schema.ROUTINES AS r
         {
             return new DbAccess(MySql.Data.MySqlClient.MySqlClientFactory.Instance, connectionString);
         }
+
         protected override string CreateCommandTemplete
         {
             get

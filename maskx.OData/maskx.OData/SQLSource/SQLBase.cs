@@ -1,10 +1,12 @@
 ﻿using maskx.Database;
+using maskx.OData.Metadata;
 using Microsoft.AspNet.OData;
 using Microsoft.AspNet.OData.Query;
 using Microsoft.OData.Edm;
 using Microsoft.OData.UriParser;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
@@ -26,14 +28,304 @@ namespace maskx.OData.SQLSource
         }
         #endregion
 
+        #region meta data
+        public ConcurrentDictionary<string, Table> Tables { get; } = new ConcurrentDictionary<string, Table>();
+
+        public ConcurrentDictionary<string, View> Views { get; } = new ConcurrentDictionary<string, View>();
+
+        public ConcurrentDictionary<string, StoredProcedure> StoredProcedures { get; } = new ConcurrentDictionary<string, StoredProcedure>();
+
+        public ConcurrentDictionary<string, Function> Functions { get; } = new ConcurrentDictionary<string, Function>();
+
+        public ConcurrentDictionary<string, Relationship> Relationships { get; } = new ConcurrentDictionary<string, Relationship>();
+
+        public IDataSource Table(string fullName, Action<Table> tableSetting)
+        {
+            var t = this.Tables.GetOrAdd(fullName, (key) =>
+            {
+                var s = key.Split('.');
+                if (s.Length == 1)
+                    return new Table()
+                    {
+                        Schema = Configuration.DefaultSchema,
+                        Name = key
+                    };
+                else
+                    return new Table()
+                    {
+                        Schema = s[0],
+                        Name = s[1]
+                    };
+            });
+            tableSetting(t);
+            return this;
+        }
+        public IDataSource View(string fullName, Action<View> viewSetting)
+        {
+            var v = this.Views.GetOrAdd(fullName, (key) =>
+            {
+                var s = key.Split('.');
+                if (s.Length == 1)
+                    return new View()
+                    {
+                        Schema = Configuration.DefaultSchema,
+                        Name = key
+                    };
+                else
+                    return new View()
+                    {
+                        Schema = s[0],
+                        Name = s[1]
+                    };
+            });
+            viewSetting(v);
+            return this;
+        }
+        public IDataSource StoredProcedure(string fullName, Action<StoredProcedure> storedProcedureSetting)
+        {
+            var v = this.StoredProcedures.GetOrAdd(fullName, (key) =>
+            {
+                var s = key.Split('.');
+                if (s.Length == 1)
+                    return new StoredProcedure()
+                    {
+                        Schema = Configuration.DefaultSchema,
+                        Name = key
+                    };
+                else
+                    return new StoredProcedure()
+                    {
+                        Schema = s[0],
+                        Name = s[1]
+                    };
+            });
+            storedProcedureSetting(v);
+            return this;
+        }
+        public IDataSource Function(string fullName, Action<Function> functionSetting)
+        {
+            var v = this.Functions.GetOrAdd(fullName, (key) =>
+            {
+                var s = key.Split('.');
+                if (s.Length == 1)
+                    return new Function()
+                    {
+                        Schema = Configuration.DefaultSchema,
+                        Name = key
+                    };
+                else
+                    return new Function()
+                    {
+                        Schema = s[0],
+                        Name = s[1]
+                    };
+            });
+            functionSetting(v);
+            return this;
+        }
+        public IDataSource Relationship(string fullName, Action<Relationship> RelationshipSetting)
+        {
+            var v = this.Relationships.GetOrAdd(fullName, (key) =>
+            {
+                return new Relationship()
+                {
+                    Key = key
+                };
+            });
+            RelationshipSetting(v);
+            return this;
+        }
+
+        void LoadTables()
+        {
+            foreach (var item in GetTables())
+            {
+                this.Table($"{item.SchemaName}.{item.TableName}", (t) =>
+                {
+                    t.Column(item.ColumnName, (c) =>
+                    {
+                        c.Type = item.DataType;
+                        c.isKey = item.isKey;
+                    });
+                });
+            }
+        }
+        void LoadViews()
+        {
+            foreach (var item in GetViews())
+            {
+                this.View($"{item.SchemaName}.{item.ViewName}", (v) =>
+                {
+                    v.Column(item.ColumnName, (c) =>
+                    {
+                        c.Type = item.DataType;
+                        c.isKey = item.isKey;
+                    });
+                });
+            }
+        }
+        void LoadRelationships()
+        {
+            foreach (var item in GetRelationship())
+            {
+                this.Relationship(item.ForeignKeyName, (r) =>
+                {
+                    r.Parent = item.ParentName;
+                    r.ParentSchema = item.ParentSchemaName;
+                    r.ParentColumn = item.ParentColumnName;
+                    r.Refrenced = item.RefrencedName;
+                    r.RefrencedSchema = item.RefrencedSchemaName;
+                    r.RefrencedColumn = item.RefrencedColumnName;
+                });
+            }
+        }
+        void LoadStoredProcedures()
+        {
+            foreach (var item in GetStoredProcedures())
+            {
+                this.StoredProcedure($"{item.SchemaName}.{item.StoredProcedureName}", (s) =>
+                {
+                    var par = s.Parameter(item.ParameterName, (p) =>
+                    {
+                        p.Mode = item.ParemeterMode;
+                        p.Type = item.ParameterDataType;
+                        p.MaxLength = item.MaxLength;
+                        if (!string.IsNullOrEmpty(item.UserDefinedTypeName))
+                        {
+                            var t = new Table
+                            {
+                                Name = item.UserDefinedTypeName,
+                                Schema = item.UserDefinedTypeSchema
+                            };
+                            foreach (var col in GetUserDefinedType(t.Schema, t.Name))
+                            {
+                                t.Column(col.ColumnName, (c) =>
+                                {
+                                    c.Type = col.DataType;
+                                    c.Nullable = col.isNullable;
+                                    c.MaxLength = col.Length;
+                                });
+                            }
+                            p.UDT = t;
+                        }
+                    });
+                });
+            }
+        }
+        void LoadFunctions()
+        {
+            foreach (var item in GetFunctions())
+            {
+                this.Function($"{item.SchemaName}.{item.FunctionName}", (f) =>
+                {
+                    f.Parameter(item.ParameterName, (p) =>
+                    {
+                        p.Type = item.ParameterDataType;
+                        p.MaxLength = item.MaxLength;
+                        if (!string.IsNullOrEmpty(item.UserDefinedTypeName))
+                        {
+                            var t = new Table
+                            {
+                                Name = item.UserDefinedTypeName,
+                                Schema = item.UserDefinedTypeSchema
+                            };
+                            foreach (var col in GetUserDefinedType(t.Schema, t.Name))
+                            {
+                                t.Column(col.ColumnName, (c) =>
+                                {
+                                    c.Type = col.DataType;
+                                    c.Nullable = col.isNullable;
+                                    c.MaxLength = col.Length;
+                                });
+                            }
+                            p.UDT = t;
+                        }
+                    });
+                });
+            }
+            foreach (var item in this.Functions.Values)
+            {
+                this.Function(item.FullName, (f) =>
+                {
+                    var t = new Table { Name = $"{f.FullName}.ResultType" };
+
+                    foreach (var r in GetTableValueType(f.Schema, f.Name))
+                    {
+                        t.Column(r.ColumnName, (c) =>
+                        {
+                            c.MaxLength = r.Length;
+                            c.Nullable = r.isNullable;
+                            c.Type = r.DataType;
+                        });
+                    }
+                    f.ResultType = t;
+                });
+            }
+        }
+        public IDataSource LoadFromDatabase(MetadataType type)
+        {
+            switch (type)
+            {
+                case MetadataType.All:
+                    LoadTables();
+                    LoadViews();
+                    LoadStoredProcedures();
+                    LoadFunctions();
+                    LoadRelationships();
+                    break;
+                case MetadataType.Table:
+                    LoadTables();
+                    break;
+                case MetadataType.View:
+                    LoadViews();
+                    break;
+                case MetadataType.StoredProcedure:
+                    LoadStoredProcedures();
+                    break;
+                case MetadataType.Function:
+                    LoadFunctions();
+                    break;
+                case MetadataType.Relationship:
+                    LoadRelationships();
+                    break;
+                default:
+                    break;
+            }
+            return this;
+        }
+
+        #endregion
+
         #region member
         public string ConnectionString { get; set; }
         private EdmComplexTypeReference _DefaultSPReturnType;
         #endregion
 
-        #region private Method
+        #region EdmModel
+        EdmModel _EdmModel;
+        readonly object _ModelLocker = new object();
+        public EdmModel Model
+        {
+            get
+            {
+                if (_EdmModel == null)
+                {
+                    lock (_ModelLocker)
+                    {
+                        if (_EdmModel == null)
+                            _EdmModel = GetEdmModel();
+                    }
+                }
+                return _EdmModel;
+            }
+        }
         private EdmModel GetEdmModel()
         {
+            //if not initial meta data, loadFromDatabase
+            if (this.Tables.Count == 0 && this.Views.Count == 0 && this.StoredProcedures.Count == 0 && this.Functions.Count == 0)
+            {
+                this.LoadFromDatabase(MetadataType.All);
+            }
             var model = new EdmModel();
             var container = new EdmEntityContainer("ns", Name);
             model.AddElement(container);
@@ -43,6 +335,89 @@ namespace maskx.OData.SQLSource
             AddRelationship(model);
             return model;
         }
+        void AddTableEdm(EdmModel model)
+        {
+            EdmEntityContainer container = model.EntityContainer as EdmEntityContainer;
+            foreach (var item in this.Tables.Values)
+            {
+                string entityName = Configuration.DefaultSchema == item.Schema ? item.Alias : item.Alias;
+                if (Configuration.LowerName)
+                    entityName = entityName.ToLower();
+                var t = new EdmEntityType(item.Schema, item.Alias);
+                foreach (var col in item.Columns.Values)
+                {
+                    var et = GetEdmType(col.Type);
+                    EdmStructuralProperty key = t.AddStructuralProperty(Configuration.LowerName ? col.Alias.ToLower() : col.Name, et.Value, true);
+                    if (col.isKey)
+                    {
+                        t.AddKeys(key);
+                    }
+                }
+                model.AddElement(t);
+                container.AddEntitySet(entityName, t);
+            }
+        }
+        void AddViewEdm(EdmModel model)
+        {
+            EdmEntityContainer container = model.EntityContainer as EdmEntityContainer;
+            foreach (var item in this.Views.Values)
+            {
+                string entityName = Configuration.DefaultSchema == item.Schema ? item.Alias : item.FullAlias;
+                if (Configuration.LowerName)
+                    entityName = entityName.ToLower();
+                var t = new EdmEntityType(item.Schema, item.Alias);
+                foreach (var col in item.Columns.Values)
+                {
+                    var et = GetEdmType(col.Type);
+                    EdmStructuralProperty key = t.AddStructuralProperty(Configuration.LowerName ? col.Alias.ToLower() : col.Name, et.Value, true);
+                    if (col.isKey)
+                    {
+                        t.AddKeys(key);
+                    }
+                }
+                model.AddElement(t);
+                container.AddEntitySet(entityName, t);
+            }
+        }
+        void AddStoredProcedureEdm(EdmModel model)
+        {
+            EdmEntityContainer container = model.EntityContainer as EdmEntityContainer;
+            foreach (var item in this.StoredProcedures.Values)
+            {
+                EdmComplexType t = new EdmComplexType(model.EntityContainer.Namespace, $"{item.Schema}_{item.Alias}_Result", null, false, true);
+                model.AddElement(t);
+                var tr = new EdmComplexTypeReference(t, true);
+                var action = new EdmAction(item.Schema, item.Alias, tr, false, null);
+                foreach (var p in item.Parameters.Values)
+                {
+
+
+                    if (p.UDT != null)
+                    {
+
+                    }
+                    else
+                    {
+                        var et = GetEdmType(p.Type);
+                        var pt = EdmCoreModel.Instance.GetPrimitive(et.Value, true);
+                        action.AddParameter(p.Alias, pt);
+                        if (p.Mode.EndsWith("OUT", StringComparison.InvariantCultureIgnoreCase))
+                        {
+
+                            t.AddStructuralProperty(p.Alias, pt);
+                        }
+                        action.AddParameter(p.Alias, pt);
+                    }
+                }
+                string entityName = action.Namespace == Configuration.DefaultSchema ? action.Name : string.Format("{0}.{1}", action.Namespace, action.Name);
+                if (Configuration.LowerName)
+                    entityName = entityName.ToLower();
+                container.AddActionImport(entityName, action, null);
+            }
+        }
+        #endregion
+
+        #region Deprecated
         void AddEdmElement(EdmModel model)
         {
             AddEdmElement(model, GetTables());
@@ -164,7 +539,7 @@ namespace maskx.OData.SQLSource
             foreach (var item in pars)
             {
                 //remove the prefix such as @ or ?
-                pName = item.name.Remove(0, 1);
+                //  pName = item.name.Remove(0, 1);
                 if (Configuration.LowerName)
                     pName = pName.ToLower();
                 action.AddParameter(pName, item.type);
@@ -315,7 +690,7 @@ namespace maskx.OData.SQLSource
         #endregion
 
 
-        #region method for Build EdmModel
+        #region abstract method for query meta data from database
         protected abstract IEnumerable<(string ForeignKeyName,
             string ParentSchemaName,
             string ParentName,
@@ -385,23 +760,7 @@ namespace maskx.OData.SQLSource
         public Configuration Configuration { get; set; }
 
         public string Name { get; private set; }
-        EdmModel _EdmModel;
-        readonly object _ModelLocker = new object();
-        public EdmModel Model
-        {
-            get
-            {
-                if (_EdmModel == null)
-                {
-                    lock (_ModelLocker)
-                    {
-                        if (_EdmModel == null)
-                            _EdmModel = GetEdmModel();
-                    }
-                }
-                return _EdmModel;
-            }
-        }
+
 
         public Action<RequestInfo> BeforeExcute { get; set; }
         public Func<RequestInfo, object, object> AfrerExcute { get; set; }
@@ -897,6 +1256,8 @@ namespace maskx.OData.SQLSource
                 par.ParameterName);
         }
         protected virtual string MergeCommandTemplete { get { return "update {0}.{1} set {2} where {3}={4} "; } }
+
+
         protected virtual string BuildMergeCmd(string key, IEdmEntityObject entity, List<DbParameter> pars)
         {
             var entityType = entity.GetEdmType().Definition as EdmEntityType;
@@ -957,8 +1318,9 @@ namespace maskx.OData.SQLSource
             }
             edmEntity.TrySetPropertyValue(expanded.NavigationSource.Name, collection);
         }
-
         #endregion
+
+
 
 
 

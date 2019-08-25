@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Text;
 using maskx.Database;
+using maskx.OData.Metadata;
 using maskx.OData.SQLSource;
 using Microsoft.AspNet.OData.Query;
 using Microsoft.OData.Edm;
@@ -213,7 +214,7 @@ select
                 {
                     yield return (reader["ROUTINE_SCHEMA"].ToString(),
                                        reader["ROUTINE_NAME"].ToString(),
-                                       reader.IsDBNull("PARAMETER_NAME") ? string.Empty : reader["PARAMETER_NAME"].ToString(),
+                                       reader.IsDBNull("PARAMETER_NAME") ? string.Empty : reader["PARAMETER_NAME"].ToString().Remove(0,1),
                                        reader.IsDBNull("DATA_TYPE") ? string.Empty : reader["DATA_TYPE"].ToString(),
                                        reader.IsDBNull("PARAMETER_MODE") ? string.Empty : reader["PARAMETER_MODE"].ToString(),
                                        reader.IsDBNull("USER_DEFINED_TYPE_SCHEMA") ? string.Empty : reader["USER_DEFINED_TYPE_SCHEMA"].ToString(),
@@ -398,6 +399,7 @@ select
                 conn.Close();
             }
         }
+
         protected override string QueryPagingCommandTemplete
         {
             //https://support.microsoft.com/en-us/help/321185/how-to-determine-the-version-edition-and-update-level-of-sql-server-an

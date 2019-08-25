@@ -1,5 +1,8 @@
 # maskx.OData
 
+![Total visitor](https://visitor-count-badge.herokuapp.com/total.svg?repo_id=maskx.OData)
+![Visitors in today](https://visitor-count-badge.herokuapp.com/today.svg?repo_id=maskx.OData)
+
 ## Introduction
 
 maskx.OData support build a Odata database proxy turn your database into a OData WebApi server.
